@@ -55,3 +55,4 @@ dialog::backdrop{background:rgba(0,0,0,.6)}dialog>*+*{margin-top:12px}
 .toast{background:var(--tx);color:var(--bg);padding:12px 18px;border-radius:14px;font-weight:600;max-width:90vw}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 header{flex-wrap:wrap}.brand-logo-img{height:34px;width:auto;max-width:150px;display:block}.ib{min-width:48px;min-height:48px;border-radius:12px;border:var(--bw) solid var(--bd);background:transparent;font-size:1.2rem;cursor:pointer;color:var(--tx)}nav{justify-content:flex-start;overflow-x:auto}nav button{flex:0 0 auto;min-width:88px;max-width:none}
+.brand-logo-img{height:44px;max-width:200px;background:#fff;border-radius:8px;padding:2px 6px}

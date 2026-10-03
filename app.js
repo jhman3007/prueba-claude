@@ -9,7 +9,7 @@ const nowHM=()=>new Date().toTimeString().slice(0,5),uid=()=>Math.random().toStr
 const isToday=t=>t&&new Date(t).toLocaleDateString('sv')===day();
 const FEATS={checkin:['Estoy bien','La familia ve cuándo confirmas que estás bien.'],reminders:['Medicamentos','La familia ve si tomaste tus medicamentos.'],cameras:['Cámaras','La familia ve el videoportero y las cámaras de acceso y exteriores.'],devices:['Dispositivos','La familia ve el estado de los sensores y recibe sus alertas.'],house:['Mi Casa','La familia ve el informe de adaptación y las mantenciones.']};
 const ICO={medicamento:'💊',cita:'📅',llamada:'📞',otro:'⏰'},FI={checkin:'🟢',reminders:'💊',cameras:'🎥',devices:'📡',house:'🏠',sos:'🆘'};
-const DT=[['radar','📡','Radar de presencia y caídas (mmWave)','Normal'],['door','🚪','Sensor de apertura magnético (puertas y ventanas)','Cerrado'],['fridge','🧊','Sensor de apertura de refrigerador','Cerrado'],['temp','🌡️','Sensor de temperatura y humedad ambiental','21°C · 48%'],['switch','💡','Interruptor de pared inteligente (Zigbee)','Apagado'],['bulb','🛋️','Ampolleta LED inteligente / regulable','Apagado'],['pir','🚶','Sensor de movimiento infrarrojo (PIR)','Sin movimiento'],['leak','💧','Sensor de fuga de agua / inundación','Normal'],['smoke','🔥','Detector de humo y monóxido de carbono','Normal']];
+const DT=[['radar','📡','Radar de presencia y caídas (mmWave)','Normal'],['door','🚪','Sensor de apertura magnético (puertas y ventanas)','Cerrado'],['fridge','🧊','Sensor de apertura de refrigerador','Cerrado'],['temp','🌡️','Sensor de temperatura y humedad ambiental','21°C · 48%'],['switch','💡','Interruptor de pared inteligente (Zigbee)','Apagado'],['bulb','🛋️','Ampolleta LED inteligente / regulable','Apagado'],['pir','🚶','Sensor de movimiento infrarrojo (PIR)','Sin movimiento'],['leak','💧','Sensor de fuga de agua / inundación','Normal'],['smoke','🔥','Detector de humo y monóxido de carbono','Normal'],['sos','🆘','Botón de pánico (pulsador)','Listo']];
 const ST={done:'Realizado',doing:'En curso',todo:'Pendiente'};
 
 /* ---------- Estado único ---------- */
@@ -26,7 +26,32 @@ const defaults=()=>({onboarded:false,role:'senior',tab:'home',viewer:null,
  settings:{theme:'auto',scale:1,contrast:false}});
 let S;try{S={...defaults(),...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{S=defaults()}
 for(const k of['cameras','devices'])if(!S.privacy[k])S.privacy[k]={on:true,who:S.contacts.map(c=>c.id)};if(!S.devices)S.devices=[];
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch{}};
+const SH=['onboarded','profile','contacts','privacy','checkin','reminders','alerts','events','devices','house'];
+const gw={on:false,live:false,rev:0,ws:null,t:null,cfg:null};
+const shared=()=>Object.fromEntries(SH.map(k=>[k,S[k]]));
+const store=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch{}};
+const save=()=>{store();if(gw.on){clearTimeout(gw.t);gw.t=setTimeout(push,250)}};
+const H=()=>({'x-token':gw.cfg.token,'content-type':'application/json'});
+async function push(){try{const r=await fetch((gw.cfg.url||'')+'/api/state',{method:'PUT',headers:H(),body:JSON.stringify({rev:gw.rev,data:shared()})}),j=await r.json();
+ if(r.status===409){adopt(j);toast('Otro dispositivo actualizó los datos. Repite tu último cambio.')}else if(r.ok)gw.rev=j.rev}catch{gw.live=false}}
+function adopt(j){const old=new Set(S.alerts.map(a=>a.id));gw.rev=j.rev;Object.assign(S,j.data);store();
+ S.alerts.filter(a=>a.st==='active'&&!a.muted&&!old.has(a.id)).forEach(a=>{toast(a.text);navigator.vibrate?.([300,150,300])});render()}
+function openWs(){const c=gw.cfg,u=new URL((c.url||location.origin).replace(/^http/,'ws')+'/ws');u.searchParams.set('token',c.token);
+ const w=gw.ws=new WebSocket(u);w.onopen=()=>{gw.live=true;if(S.onboarded)render()};w.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='state'&&m.rev!==gw.rev)adopt(m)};
+ w.onclose=()=>{gw.live=false;if(gw.on)setTimeout(openWs,3000)}}
+const b64=s=>{const r=atob((s+'='.repeat((4-s.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(r,c=>c.charCodeAt(0))};
+const pushOk=()=>typeof Notification!=='undefined'&&Notification.permission==='granted'&&!!localStorage.getItem('hs60.push');
+async function pushSync(ask){try{if(!gw.on)return toast('Primero vincula con el gateway');
+ if(!('serviceWorker'in navigator&&'PushManager'in window))return toast('Este navegador no admite avisos. En iPhone, instala primero la app.');
+ if(ask&&await Notification.requestPermission()!=='granted')return toast('Permiso denegado');
+ if(Notification.permission!=='granted')return;
+ const u=gw.cfg.url||'',reg=await navigator.serviceWorker.ready,k=await(await fetch(u+'/api/vapid',{headers:H()})).json();
+ const sub=await reg.pushManager.getSubscription()||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64(k.key)});
+ await fetch(u+'/api/push',{method:'POST',headers:H(),body:JSON.stringify({sub,viewer:S.role==='family'?S.viewer:null})});
+ localStorage.setItem('hs60.push','1');if(ask){toast('✅ Avisos activados en este teléfono');render()}}catch{toast('No se pudieron activar los avisos. ¿La app se abrió con HTTPS?')}}
+async function connect(){try{gw.cfg=JSON.parse(localStorage.getItem('hs60.gw')||'null');if(!gw.cfg?.token)return false;
+ const r=await fetch((gw.cfg.url||'')+'/api/state',{headers:H()});if(!r.ok)return false;const j=await r.json();gw.rev=j.rev;
+ if(j.data){Object.assign(S,j.data);store()}gw.on=true;openWs();if(pushOk())pushSync();if(!j.data)push();render();return true}catch{return false}}
 const log=(feat,text,level='info')=>{S.events.unshift({id:uid(),t:Date.now(),feat,text,level});S.events=S.events.slice(0,100)};
 const can=f=>S.role==='senior'||f==='sos'||!!(S.privacy[f]?.on&&S.privacy[f].who.includes(S.viewer));
 const addAlert=(type,text,feat,devId)=>{S.alerts.unshift({id:uid(),type,text,feat,devId,t:Date.now(),st:'active',muted:false});log(feat,text,'alert')};
@@ -84,7 +109,7 @@ function cams(){if(!can('cameras'))return lock();return `<h2>Cámaras</h2><p cla
  <section class="card"><h3>🔔 Videoportero</h3>${tile('Entrada')}<div class="row"><button class="btn sm" data-act="toast" data-id="Mostrando el videoportero (demo)">Ver quién llama</button><button class="btn sm ghost" data-act="toast" data-id="Hablando con la visita (demo)">Hablar</button></div></section>
  <section class="card"><h3>Acceso principal</h3>${tile('Puerta principal')}</section><section class="card"><h3>Patio o jardín</h3>${tile('Exterior')}</section>`}
 function net(){return `<div class="between"><h2>Red de apoyo</h2><button class="btn sm" data-act="addContact">+ Agregar persona</button></div>`+(S.contacts.map(c=>`<article class="card item"><span class="ico" aria-hidden="true">👤</span><div class="grow"><h3>${esc(c.name)}</h3><p class="muted">${esc(c.rel)} · ${esc(c.phone)}</p></div><a class="btn sm" href="tel:${esc(c.phone.replace(/[^\d+]/g,''))}" aria-label="Llamar a ${esc(c.name)}">📞</a><button class="btn sm ghost" data-act="delContact" data-id="${c.id}" aria-label="Eliminar a ${esc(c.name)}">🗑</button></article>`).join('')||'<p class="muted">Aún no hay personas. Toca “+ Agregar persona”.</p>')}
-function dev(){if(!can('devices'))return lock();return `<div class="between"><h2>Dispositivos</h2><button class="btn sm" data-act="addDev">+ Agregar</button></div>`+(S.devices.map(d=>{const t=DT.find(x=>x[0]===d.type)||DT[0];return `<article class="card item"><span class="ico" aria-hidden="true">${t[1]}</span><div class="grow"><h3>${esc(d.name)}</h3><p class="muted">${esc(d.loc)} · ${esc(t[2])}</p><p><span class="tag ok">Conectado</span> <span class="tag ${d.bad?'bad':''}">${esc(d.info)}</span></p></div><div class="col"><button class="btn sm ghost" data-act="simDev" data-id="${d.id}" aria-label="Probar ${esc(d.name)}">Probar</button><button class="btn sm ghost" data-act="delDev" data-id="${d.id}" aria-label="Eliminar ${esc(d.name)}">🗑</button></div></article>`}).join('')||'<p class="muted">Aún no hay dispositivos.</p>')+`<p class="muted">“Probar” envía un evento de demostración.</p>`}
+function dev(){if(!can('devices'))return lock();return `<div class="between"><h2>Dispositivos</h2><button class="btn sm" data-act="addDev">+ Agregar</button></div>`+(S.devices.map(d=>{const t=DT.find(x=>x[0]===d.type)||DT[0];return `<article class="card item"><span class="ico" aria-hidden="true">${t[1]}</span><div class="grow"><h3>${esc(d.name)}</h3><p class="muted">${esc(d.loc)} · ${esc(t[2])}</p><p><span class="tag ${d.mqtt?'ok':''}">${d.mqtt?'Zigbee':'Simulado'}</span> <span class="tag ${d.bad?'bad':''}">${esc(d.info)}</span></p></div><div class="col"><button class="btn sm ghost" data-act="simDev" data-id="${d.id}" aria-label="Probar ${esc(d.name)}">Probar</button><button class="btn sm ghost" data-act="delDev" data-id="${d.id}" aria-label="Eliminar ${esc(d.name)}">🗑</button></div></article>`}).join('')||'<p class="muted">Aún no hay dispositivos.</p>')+`<p class="muted">“Probar” envía un evento de demostración.</p>`}
 
 function set(){const s=S.settings,c=S.checkin,b=(a,id,t,on)=>`<button class="btn sm ${on?'':'ghost'}" data-act="${a}" data-id="${id}" aria-pressed="${on}">${t}</button>`;
  return `<h2>Ajustes</h2>
@@ -92,6 +117,8 @@ function set(){const s=S.settings,c=S.checkin,b=(a,id,t,on)=>`<button class="btn
  <section class="card"><h3>Tamaño de letra</h3><div class="row">${b('scale',1,'Normal',s.scale===1)}${b('scale',1.15,'Grande',s.scale===1.15)}${b('scale',1.3,'Muy grande',s.scale===1.3)}</div></section>
  <section class="card"><div class="between"><h3>Alto contraste</h3><button class="switch" role="switch" aria-checked="${s.contrast}" aria-label="Alto contraste" data-act="contrast">${s.contrast?'Sí':'No'}</button></div></section>
  <section class="card"><div class="between"><div><h3>Aviso si no confirmo</h3><p class="muted">Si no tocas “Estoy bien” antes de la hora, se avisa a la familia.</p></div><button class="switch" role="switch" aria-checked="${c.daily}" aria-label="Aviso diario" data-act="daily">${c.daily?'Sí':'No'}</button></div><label>Hora límite<input type="time" data-ctime value="${esc(c.time)}"></label></section>
+ <section class="card"><h3>Gateway del hogar</h3><p class="muted">${gw.on?(gw.live?'🟢 Conectado y sincronizando':'🟠 Sin conexión, reintentando'):'Modo independiente: los datos solo están en este teléfono.'}</p><button class="btn sm ${gw.on?'ghost':''}" data-act="${gw.on?'unlink':'link'}">${gw.on?'Desvincular':'Vincular con el gateway'}</button></section>
+ <section class="card"><h3>Avisos en este teléfono</h3><p class="muted">${pushOk()?'🟢 Activados: recibirás las alertas aunque la app esté cerrada.':'Para recibir alertas con la app cerrada. Requiere vincular el gateway y abrir la app con HTTPS.'}</p>${pushOk()?'':'<button class="btn sm" data-act="pushOn">Activar avisos</button>'}</section>
  ${deferred?'<button class="btn" data-act="install">📲 Instalar en este teléfono</button>':''}
  <button class="btn ghost" data-act="reset">Borrar todos los datos</button>`}
 
@@ -123,9 +150,9 @@ ov.addEventListener('click',e=>{const k=e.target.closest('[data-ov]')?.dataset.o
  if(k==='close')ov.hidden=true;save();render()});
 
 /* ---------- Acciones ---------- */
-let deferred=null;const mkDev=(t,name,loc)=>({id:uid(),type:t,name,loc,info:DT.find(x=>x[0]===t)[3],bad:false});
+let deferred=null;const mkDev=(t,name,loc,mqtt='')=>({id:uid(),type:t,name,loc,mqtt,info:DT.find(x=>x[0]===t)[3],bad:false});
 const A={
- role(id){S.role=id;S.tab='home';if(id==='family'&&!S.contacts.some(c=>c.id===S.viewer))S.viewer=S.contacts[0]?.id},
+ role(id){S.role=id;S.tab='home';if(id==='family'&&!S.contacts.some(c=>c.id===S.viewer))S.viewer=S.contacts[0]?.id;if(pushOk())pushSync()},
  tab(id){S.tab=id},
  checkin(){S.checkin.last=Date.now();log('checkin','Confirmó que está bien');toast('✅ Listo. Tu familia sabrá que estás bien.')},
  resolve(id){const a=S.alerts.find(x=>x.id===id);if(!a)return;a.st='resolved';if(a.devId){const d=S.devices.find(x=>x.id===a.devId);if(d){d.bad=false;d.info='Normal'}}log(a.feat,'Alerta resuelta: '+a.text);toast('Alerta resuelta')},
@@ -141,7 +168,10 @@ const A={
  doneMaint(id){S.house.maint.find(m=>m.id===id).done=true;log('house','Mantención realizada');toast('Mantención registrada')},
  reqMaint(){log('house','Solicitó visita a Hogar Seguro 60+');toast('Solicitud enviada (demo)')},
  toast(id){toast(id)},
- async addDev(){const f=await formDlg('Nuevo dispositivo',[{n:'type',l:'Tipo de dispositivo',o:DT.map(t=>t[1]+' '+t[2])},{n:'loc',l:'Ubicación',r:1,p:'Ej: Cocina'},{n:'name',l:'Nombre',r:1,p:'Ej: Sensor de la puerta'}]);if(f){const t=DT.find(x=>f.type===x[1]+' '+x[2]);S.devices.push(mkDev(t[0],f.name.trim(),f.loc.trim()));log('devices','Nuevo dispositivo: '+f.name.trim());toast('Dispositivo agregado')}},
+ async link(){const f=await formDlg('Vincular con el gateway',[{n:'token',l:'Código de vinculación',r:1,p:'Lo muestra el servidor al iniciar'}]);if(f){localStorage.setItem('hs60.gw',JSON.stringify({token:f.token.trim()}));toast(await connect()?'✅ Vinculado con el gateway':'No se pudo vincular. Revisa el código y la conexión.')}},
+ async pushOn(){await pushSync(true)},
+ unlink(){gw.on=false;gw.ws?.close();localStorage.removeItem('hs60.gw');toast('Desvinculado. Los datos quedan en este teléfono.')},
+ async addDev(){const f=await formDlg('Nuevo dispositivo',[{n:'type',l:'Tipo de dispositivo',o:DT.map(t=>t[1]+' '+t[2])},{n:'loc',l:'Ubicación',r:1,p:'Ej: Cocina'},{n:'name',l:'Nombre',r:1,p:'Ej: Sensor de la puerta'},{n:'mqtt',l:'Nombre en Zigbee2MQTT (opcional)',p:'Ej: sensor_puerta'}]);if(f){const t=DT.find(x=>f.type===x[1]+' '+x[2]);S.devices.push(mkDev(t[0],f.name.trim(),f.loc.trim(),f.mqtt.trim()));log('devices','Nuevo dispositivo: '+f.name.trim());toast('Dispositivo agregado')}},
  async delDev(id){if(await ask('¿Eliminar dispositivo?','Dejará de aparecer en la lista.','Eliminar')){S.devices=S.devices.filter(d=>d.id!==id);toast('Dispositivo eliminado')}},
  simDev(id){const d=S.devices.find(x=>x.id===id),t=d.type,tm=hm(Date.now());
   const ev=(x,i)=>{d.info=i;d.bad=false;log('devices',d.name+': '+x)},al=(x,i)=>{d.info=i;d.bad=true;addAlert('device',x+' ('+d.loc+')','devices',id)};
@@ -152,6 +182,7 @@ const A={
   else if(t==='switch'||t==='bulb'){const o=d.info!=='Encendido';ev(o?'encendido':'apagado',o?'Encendido':'Apagado')}
   else if(t==='pir')ev('movimiento detectado','Movimiento '+tm);
   else if(t==='leak')al('💧 Fuga de agua detectada','Fuga detectada');
+  else if(t==='sos'){d.info='Pulsado '+tm;d.bad=true;addAlert('sos','🆘 Botón de pánico pulsado ('+d.loc+')','sos',id)}
   else al('🔥 Humo o monóxido detectado','Alerta');
   toast('Evento de prueba enviado')},
 
@@ -163,7 +194,7 @@ const A={
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const r=await A[b.dataset.act]?.(b.dataset.id);if(r!=='skip'){save();render()}});
 document.addEventListener('change',e=>{const t=e.target;
  if(t.dataset.who){const w=S.privacy[t.dataset.who].who,i=w.indexOf(t.value);if(t.checked&&i<0)w.push(t.value);if(!t.checked&&i>=0)w.splice(i,1);toast('Permisos actualizados')}
- else if(t.dataset.viewer!==undefined)S.viewer=t.value;
+ else if(t.dataset.viewer!==undefined){S.viewer=t.value;if(pushOk())pushSync()}
  else if(t.dataset.ctime!==undefined){S.checkin.time=t.value;toast('Hora guardada')}else return;
  save();if(t.dataset.viewer!==undefined)render()});
 document.addEventListener('submit',e=>{const f=e.target.closest('[data-form=onboard]');if(!f)return;e.preventDefault();const d=Object.fromEntries(new FormData(f)),id=uid();
@@ -171,7 +202,7 @@ document.addEventListener('submit',e=>{const f=e.target.closest('[data-form=onbo
  S.contacts=[{id,name:d.cname.trim(),rel:d.rel,phone:d.phone.trim()}];S.viewer=id;
  Object.values(S.privacy).forEach(p=>{p.on=true;p.who=[id]});S.checkin.daily=!!d.daily;S.checkin.time='20:00';
  S.reminders=[{id:uid(),type:'medicamento',title:'Tomar mi medicamento',time:'12:00'},{id:uid(),type:'llamada',title:'Llamar a mi familia',time:'19:00'}];
- S.devices=[mkDev('door','Puerta principal','Entrada'),mkDev('smoke','Detector de humo','Cocina'),mkDev('temp','Temperatura del living','Living')];S.onboarded=true;log('checkin','Hogar Seguro 60+ configurada');save();render();toast('¡Listo! Tu hogar está configurado.')});
+ S.devices=[mkDev('door','Puerta principal','Entrada'),mkDev('smoke','Detector de humo','Cocina'),mkDev('temp','Temperatura del living','Living'),mkDev('sos','Botón de pánico','Dormitorio')];S.onboarded=true;log('checkin','Hogar Seguro 60+ configurada');save();render();toast('¡Listo! Tu hogar está configurado.')});
 
 /* ---------- Aviso diario, PWA ---------- */
 function checkMissed(){const c=S.checkin;if(S.onboarded&&c.daily&&nowHM()>=c.time&&!isToday(c.last)&&c.missedDay!==day()){c.missedDay=day();addAlert('missed','Hoy no ha confirmado “Estoy bien”','checkin');save();render()}}
@@ -179,4 +210,4 @@ setInterval(checkMissed,30000);
 addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;if(S.onboarded)render()});
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applySettings);
-render();checkMissed();
+render();checkMissed();connect();

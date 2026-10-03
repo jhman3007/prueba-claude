@@ -1,0 +1,1 @@
+{"name":"hogar-seguro-gateway","version":"0.1.0","type":"module","dependencies":{"mqtt":"^5.10.0","ws":"^8.18.0","web-push":"^3.6.7"}}

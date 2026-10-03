@@ -1,5 +1,5 @@
 'use strict';
-const LOGO='<img src="logo.png" alt="Hogar Seguro 60+" class="brand-logo-img" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><strong hidden>🏠 Hogar Seguro 60+</strong>';
+const LOGO='<img src="logo-hs60.png" alt="Hogar Seguro 60+" class="brand-logo-img" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><strong hidden>🏠 Hogar Seguro 60+</strong>';
 const KEY='casasegura60.v1',$=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const day=(n=0)=>{const d=new Date();d.setDate(d.getDate()+n);return d.toLocaleDateString('sv')};

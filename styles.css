@@ -76,3 +76,7 @@ nav button[aria-current=page]{box-shadow:none;color:var(--pr)}
 nav button[aria-current=page]::before{content:"";position:absolute;top:9px;left:50%;transform:translateX(-50%);width:52px;height:32px;border-radius:16px;background:color-mix(in srgb,var(--pr) 13%,transparent);z-index:0}
 .sos{background:linear-gradient(180deg,#D6333A,#B3202A);border-radius:22px;box-shadow:0 6px 16px rgba(192,38,45,.35),inset 0 1px 0 rgba(255,255,255,.25)}
 [data-theme=dark] .sos{background:#FF9189}
+/* Etiquetas de estado: compactas, con fondo suave y un punto de color */
+.tag{display:inline-flex;align-items:center;align-self:center;gap:6px;white-space:nowrap;border:0;padding:5px 12px;border-radius:999px;font-size:.8rem;font-weight:700;line-height:1.2;background:color-mix(in srgb,currentColor 14%,transparent)}
+.tag::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+[data-contrast=high] .tag{border:2px solid currentColor;background:transparent}

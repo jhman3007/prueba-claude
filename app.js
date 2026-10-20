@@ -27,7 +27,7 @@ const defaults=()=>({onboarded:false,role:'senior',tab:'home',viewer:null,
   maint:[{id:'m1',title:'Revisión del detector de humo',due:day(20),done:false},{id:'m2',title:'Revisión de barras de apoyo',due:day(75),done:false}]},
  settings:{theme:'auto',scale:1,contrast:false}});
 let S;try{S={...defaults(),...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{S=defaults()}
-for(const k of['cameras','devices'])if(!S.privacy[k])S.privacy[k]={on:true,who:S.contacts.map(c=>c.id)};if(!S.devices)S.devices=[];
+for(const k of['cameras','devices'])if(!S.privacy[k])S.privacy[k]={on:true,who:S.contacts.map(c=>c.id)};if(!S.devices)S.devices=[];S.reminders=(S.reminders||[]).map(r=>r.first?r:mkMed(r.title||'Medicamento','',r.time||'08:00',24,0,null));if(S.role==='family'&&S.profile?.pin&&!S.famOk)S.role='senior';
 const SH=['onboarded','profile','contacts','privacy','checkin','reminders','alerts','events','devices','house'];
 const gw={on:false,live:false,rev:0,ws:null,t:null,cfg:null};
 const shared=()=>Object.fromEntries(SH.map(k=>[k,S[k]]));
@@ -68,7 +68,7 @@ function modal(html,fn){return new Promise(r=>{dlg.innerHTML=html;dlg.returnValu
  const f=dlg.querySelector('form');if(f)f.onsubmit=e=>{e.preventDefault();out=Object.fromEntries(new FormData(f));dlg.close('ok')};
  dlg.showModal()})}
 const ask=(t,p,ok='Aceptar')=>modal(`<h2>${esc(t)}</h2><p>${esc(p)}</p><div class="row"><button class="btn" data-d="ok">${esc(ok)}</button><button class="btn ghost" data-d="no">Cancelar</button></div>`);
-const formDlg=(t,fields)=>modal(`<h2>${esc(t)}</h2><form>${fields.map(f=>`<label>${esc(f.l)}${f.o?`<select name="${f.n}">${f.o.map(o=>`<option ${o===f.v?'selected':''}>${esc(o)}</option>`).join('')}</select>`:`<input name="${f.n}" type="${f.t||'text'}" ${f.r?'required':''} ${f.p?`placeholder="${esc(f.p)}"`:''} value="${esc(f.v||'')}">`}</label>`).join('')}<div class="row"><button class="btn">Guardar</button><button type="button" class="btn ghost" data-d="no">Cancelar</button></div></form>`);
+const formDlg=(t,fields)=>modal(`<h2>${esc(t)}</h2><form>${fields.map(f=>`<label>${esc(f.l)}${f.o?`<select name="${f.n}">${f.o.map(o=>`<option ${o===f.v?'selected':''}>${esc(o)}</option>`).join('')}</select>`:`<input name="${f.n}" type="${f.t||'text'}" ${f.r?'required':''} ${f.p?`placeholder="${esc(f.p)}"`:''} value="${esc(f.v||'')}" ${f.i?'inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" title="4 dígitos"':''}>`}</label>`).join('')}<div class="row"><button class="btn">Guardar</button><button type="button" class="btn ghost" data-d="no">Cancelar</button></div></form>`);
 
 /* ---------- Vistas ---------- */
 const lock=()=>`<div class="card"><p>🔒 La persona mayor pausó esta información.</p></div>`;
@@ -76,10 +76,10 @@ const banner=()=>liveAlerts().map(a=>`<section class="card alert" role="alert"><
 const isDone=r=>r.doneDate===day();
 const call=c=>`<a class="btn" href="tel:${esc(c.phone.replace(/[^\d+]/g,''))}" aria-label="Llamar a ${esc(c.name)}">${ic('phone')} ${esc(c.name)}<small>${esc(c.rel)}</small></a>`;
 
-function homeS(){const c=S.checkin,nx=[...S.reminders].filter(r=>!isDone(r)).sort((a,b)=>a.time.localeCompare(b.time))[0];
+function homeS(){const c=S.checkin,nx=nextDose();
  return banner()+`<button class="sos" data-act="sos" aria-label="Necesito ayuda. Avisar a mi familia"><span>🔴 NECESITO AYUDA</span><small>Tendrás 5 segundos para cancelar</small></button>
  <button class="btn ok big" data-act="checkin" aria-label="Estoy bien. Avisar a mi familia"><span>🟢 ESTOY BIEN</span><small>${isToday(c.last)?'Hoy a las '+hm(c.last):'Aún no lo confirmas hoy'}</small></button>
- ${nx?`<div class="card"><small>Próximo medicamento</small><h3>${ICO[nx.type]||'⏰'} ${esc(nx.title)} · ${esc(nx.time)}</h3></div>`:''}
+ ${nx?`<div class="card"><small>${nx.due?'Es hora de tu medicamento':'Próximo medicamento'}</small><h3>💊 ${esc(nx.m.name)} ${esc(nx.m.dose)} · ${dlab(nx.t)}</h3>${nx.due?`<button class="btn ok" data-act="takeDose" data-id="${nx.m.id}|${nx.t}">Ya lo tomé</button>`:''}</div>`:''}
  <h2>Mi familia</h2><div class="grid">${S.contacts.map(call).join('')||'<p class="muted">Agrega personas en Red.</p>'}</div>`}
 
 function homeF(){const c=S.checkin,v=S.contacts.find(x=>x.id===S.viewer);
@@ -89,10 +89,33 @@ function homeF(){const c=S.checkin,v=S.contacts.find(x=>x.id===S.viewer);
  <p>${can('checkin')?(c.last?`🟢 Última confirmación: ${isToday(c.last)?'hoy':dmy(c.last)} a las ${hm(c.last)}`:'Aún sin confirmaciones'):'🔒 Dato pausado por la persona mayor'}</p></section>
  ${banner()}<h2>Historial</h2><section class="card"><ul class="ev">${ev.map(e=>`<li><time>${isToday(e.t)?'':dmy(e.t)+' '}${hm(e.t)}</time><span class="${e.level==='alert'?'alert':''}">${FI[e.feat]||''} ${esc(e.text)}</span></li>`).join('')||'<li class="muted">Sin eventos todavía.</li>'}</ul></section>`}
 
-function rem(){if(!can('reminders'))return lock();
- const L=[...S.reminders].sort((a,b)=>a.time.localeCompare(b.time));
- return `<div class="between"><h2>Medicamentos</h2><button class="btn sm" data-act="addRem">+ Agregar</button></div>`+
- (L.map(r=>{const d=isDone(r),late=!d&&r.time<nowHM();return `<article class="card item ${d?'done':''}"><span class="ico" aria-hidden="true">${ICO[r.type]||'⏰'}</span><div class="grow"><h3>${esc(r.title)}</h3><p class="muted">${esc(r.time)} <span class="tag ${d?'ok':late?'bad':'wait'}">${d?'Completado '+hm(r.doneAt):late?'Atrasado':'Pendiente'}</span></p></div><div class="col"><button class="btn sm ${d?'ghost':'ok'}" data-act="doneRem" data-id="${r.id}" aria-label="${d?'Deshacer':'Marcar como hecho'}: ${esc(r.title)}">${d?'Deshacer':'✓ Hecho'}</button><button class="btn sm ghost" data-act="delRem" data-id="${r.id}" aria-label="Eliminar ${esc(r.title)}">${ic('trash')}</button></div></article>`}).join('')||'<p class="muted">Aún no hay medicamentos. Toca “+ Agregar”.</p>')}
+function mkMed(name,dose,first,every,days,hours,start){return{id:uid(),name,dose,first,every,days,hours:hours||null,start:start||day(),taken:{}}}
+const DAY=864e5,hh=x=>{const[h,i]=x.split(':').map(Number);return h*60+i};
+const slots=m=>m.hours?.length?m.hours.map(hh).sort((a,b)=>a-b):Array.from({length:24/m.every},(_,k)=>(hh(m.first)+k*m.every*60)%1440).sort((a,b)=>a-b);
+const endOf=m=>{if(!m.days)return Infinity;const s=new Date(m.start+'T'+m.first);return new Date(s.getFullYear(),s.getMonth(),s.getDate()+m.days,s.getHours(),s.getMinutes()).getTime()};
+function doses(m,from,to){const out=[],s=new Date(m.start+'T'+m.first).getTime(),e=endOf(m),sl=slots(m),d=new Date(Math.max(from,s));d.setHours(0,0,0,0);
+ for(;d.getTime()<=to&&d.getTime()<e&&out.length<500;d.setDate(d.getDate()+1))for(const x of sl){const t=new Date(d.getFullYear(),d.getMonth(),d.getDate(),0,x).getTime();if(t>=s&&t>=from&&t<=to&&t<e)out.push(t)}return out}
+function nextDose(){const now=Date.now();let b=null;for(const m of S.reminders){const t=doses(m,now-36e5,now+2*DAY).find(x=>!m.taken[x]);if(t&&(!b||t<b.t))b={m,t,due:t<=now}}return b}
+function dlab(t){const d=new Date(t),n=new Date(),k=Math.round((new Date(d.getFullYear(),d.getMonth(),d.getDate())-new Date(n.getFullYear(),n.getMonth(),n.getDate()))/DAY);return(k===0?'Hoy':k===1?'Mañana':dmy(t))+' '+hm(t)}
+function medTick(){if(!S.onboarded)return;const now=Date.now();S.notif=S.notif||{};if(Object.keys(S.notif).length>300)S.notif={};let ch=false;
+ for(const m of S.reminders)for(const t of doses(m,now-18e5,now)){const k=m.id+t;if(m.taken[t]||S.notif[k])continue;S.notif[k]=1;ch=true;
+  const msg='💊 Hora de tomar '+m.name+(m.dose?' · '+m.dose:'');toast(msg);navigator.vibrate?.([300,150,300]);
+  if(typeof Notification!=='undefined'&&Notification.permission==='granted'&&navigator.serviceWorker)navigator.serviceWorker.ready.then(r=>r.showNotification('Hogar Seguro 60+',{body:msg,icon:'icon-192.png',tag:k,requireInteraction:true})).catch(()=>{})}
+ if(ch){store();if(S.tab==='home'||S.tab==='rem')render()}}
+const welcome=()=>`<main class="welcome">${LOGO}<h1>Porque la tranquilidad de tus padres también es la tuya</h1>
+ <p>Hogar Seguro 60+ adapta la casa de una persona mayor para que pueda seguir viviendo en ella con seguridad e independencia, y ayuda a su familia a acompañarla sin invadir su privacidad.</p>
+ <section class="card"><h3>Cómo funciona</h3><p><strong>1. Evaluamos</strong> la vivienda y cómo vive la persona.</p><p><strong>2. Adaptamos</strong> lo que realmente necesita: barras de apoyo, pisos antideslizantes, mejor iluminación.</p><p><strong>3. Acompañamos</strong> con tecnología discreta, solo donde aporta valor.</p></section>
+ <section class="card"><h3>Esta app</h3><p>Un botón de ayuda y un “Estoy bien” para la persona mayor, recordatorios de medicamentos y un panel para la familia. La persona decide qué se comparte.</p></section>
+ <button class="btn big" data-act="start">Configurar un hogar</button><button class="btn ghost" data-act="demo">Ver demostración con una familia de ejemplo</button>
+ <p class="muted">Versión de demostración: todavía no envía avisos reales.</p></main>`;
+function rem(){if(!can('reminders'))return lock();const now=Date.now(),a=new Date();a.setHours(0,0,0,0);const z=a.getTime()+DAY-1,a0=a.getTime();
+ return `<div class="between"><h2>Medicamentos</h2><button class="btn sm" data-act="addMed">+ Agregar</button></div>`+
+ (typeof Notification!=='undefined'&&Notification.permission!=='granted'?`<div class="card"><p>🔔 Activa los avisos para que suene a la hora de cada dosis.</p><button class="btn sm" data-act="medNotif">Activar avisos</button></div>`:'')+
+ (S.reminders.map(m=>{const tot=m.days?doses(m,0,endOf(m)).length:0,tk=Object.keys(m.taken).length,nx=doses(m,now,now+4*DAY).filter(t=>!m.taken[t]).slice(0,3);
+  return `<article class="card"><div class="between"><div><h3>${esc(m.name)} ${esc(m.dose)}</h3><p class="muted">${m.hours?.length?'A las '+esc(m.hours.join(', ')):'Cada '+m.every+' horas'} · ${m.days?m.days+' días ('+tot+' dosis)':'Permanente'}</p></div><button class="btn sm ghost" data-act="delMed" data-id="${m.id}" aria-label="Eliminar ${esc(m.name)}">${ic('trash')}</button></div>
+  ${m.days?`<div class="bar" role="progressbar" aria-valuenow="${tk}" aria-valuemin="0" aria-valuemax="${tot}" aria-label="Dosis tomadas"><i style="width:${Math.min(100,tk/tot*100)}%"></i></div><p class="muted">${endOf(m)<=now?'Tratamiento terminado · ':''}${tk} de ${tot} dosis tomadas · termina el ${dmy(endOf(m)-1)}</p>`:''}
+  <strong>Hoy</strong><div class="row">${doses(m,a0,z).map(t=>{const k=m.taken[t],late=!k&&now-t>36e5;return `<button class="btn sm ${k?'ok':'ghost'} ${late?'late':''}" data-act="takeDose" data-id="${m.id}|${t}" aria-label="${k?'Deshacer':'Marcar como tomada'} la dosis de las ${hm(t)}">${hm(t)} ${k?'✓':late?'· atrasada':''}</button>`}).join('')||'<span class="muted">Sin dosis hoy</span>'}</div>
+  ${nx.length?`<p class="muted">Próximas: ${nx.map(dlab).join(' · ')}</p>`:''}</article>`}).join('')||'<p class="muted">Aún no hay medicamentos. Toca “+ Agregar”.</p>')}
 
 const AREAS=['Acceso','Puertas','Pasillos','Escaleras','Baño','Dormitorio','Cocina','Living','Pisos','Iluminación','Seguridad','Tecnología'],LV=['Nivel 1 · Seguridad básica','Nivel 2 · Adaptación de ambiente','Nivel 3 · Adaptación parcial','Nivel 4 · Adaptación integral','Nivel 5 · Casa segura + tecnología'];
 const hash=k=>{const s='hs60:'+k;let a=0xdeadbeef,b=0x41c6ce57;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);a=Math.imul(a^c,2654435761);b=Math.imul(b^c,1597334677)}a=Math.imul(a^a>>>16,2246822507)^Math.imul(b^b>>>13,3266489909);b=Math.imul(b^b>>>16,2246822507)^Math.imul(a^a>>>13,3266489909);return(4294967296*(2097151&b)+(a>>>0)).toString(36)};
@@ -134,6 +157,7 @@ function set(){const s=S.settings,c=S.checkin,b=(a,id,t,on)=>`<button class="btn
  <section class="card"><div class="between"><div><h3>Aviso si no confirmo</h3><p class="muted">Si no tocas “Estoy bien” antes de la hora, se avisa a la familia.</p></div><button class="switch" role="switch" aria-checked="${c.daily}" aria-label="Aviso diario" data-act="daily">${c.daily?'Sí':'No'}</button></div><label>Hora límite<input type="time" data-ctime value="${esc(c.time)}"></label></section>
  <section class="card"><h3>Gateway del hogar</h3><p class="muted">${gw.on?(gw.live?'🟢 Conectado y sincronizando':'🟠 Sin conexión, reintentando'):'Modo independiente: los datos solo están en este teléfono.'}</p><button class="btn sm ${gw.on?'ghost':''}" data-act="${gw.on?'unlink':'link'}">${gw.on?'Desvincular':'Vincular con el gateway'}</button></section>
  <section class="card"><h3>Avisos en este teléfono</h3><p class="muted">${pushOk()?'🟢 Activados: recibirás las alertas aunque la app esté cerrada.':'Para recibir alertas con la app cerrada. Requiere vincular el gateway y abrir la app con HTTPS.'}</p>${pushOk()?'':'<button class="btn sm" data-act="pushOn">Activar avisos</button>'}</section>
+ ${S.role==='family'?`<section class="card"><h3>Clave del modo Familia</h3><p class="muted">Son 4 números. La persona mayor entra sin clave.</p><button class="btn sm ghost" data-act="setPin">${S.profile.pin?'Cambiar clave':'Crear clave'}</button></section>`:''}
  <section class="card"><h3>Modo técnico</h3><p class="muted">Solo para el equipo de Hogar Seguro 60+: cargar adaptaciones y mantenciones.</p><button class="btn sm ghost" data-act="${techOn()?'tab':'techOpen'}" ${techOn()?'data-id="tech"':''}>${techOn()?'Volver al modo técnico':'Entrar al modo técnico'}</button></section>
  ${deferred?'<button class="btn" data-act="install">📲 Instalar en este teléfono</button>':''}
  <button class="btn ghost" data-act="reset">Borrar todos los datos</button>`}
@@ -141,7 +165,7 @@ function set(){const s=S.settings,c=S.checkin,b=(a,id,t,on)=>`<button class="btn
 function onboard(){return `<main>${LOGO}<p>Vamos a configurar tu hogar. Toma menos de un minuto.</p>
  <form data-form="onboard" class="card"><label>Tu nombre<input name="name" required autocomplete="name"></label><label>Edad (opcional)<input name="age" type="number" min="40" max="120"></label><label>Comuna<input name="comuna" required></label>
  <label>Tipo de vivienda<select name="type"><option>Casa</option><option>Departamento</option></select></label>
- <h2>Persona de confianza</h2><label>Nombre<input name="cname" required></label><label>Relación<select name="rel"><option>Hijo/a</option><option>Vecino/a</option><option>Cuidador/a</option><option>Allegado/a</option><option>Médico tratante</option></select></label><label>Teléfono<input name="phone" type="tel" required placeholder="+56 9 1234 5678" pattern="[+0-9 ()-]{8,}"></label>
+ <label>Clave de 4 dígitos para el modo Familia<input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required autocomplete="off"></label><p class="muted">La persona mayor entra sin clave. Solo la familia la necesita.</p><h2>Persona de confianza</h2><label>Nombre<input name="cname" required></label><label>Relación<select name="rel"><option>Hijo/a</option><option>Vecino/a</option><option>Cuidador/a</option><option>Allegado/a</option><option>Médico tratante</option></select></label><label>Teléfono<input name="phone" type="tel" required placeholder="+56 9 1234 5678" pattern="[+0-9 ()-]{8,}"></label>
  <label class="chk"><input type="checkbox" name="daily" checked> Avisar si no confirmo “Estoy bien” antes de las 20:00</label>
  <label class="chk"><input type="checkbox" name="consent" required> Entiendo que yo decido qué ve mi familia y puedo pausarlo en Privacidad.</label>
  <button class="btn big">Comenzar</button></form></main>`}
@@ -149,17 +173,17 @@ function onboard(){return `<main>${LOGO}<p>Vamos a configurar tu hogar. Toma men
 /* ---------- Render ---------- */
 const TT=[['home','home','Inicio'],['rem','pill','Medicamentos'],['cams','cam','Cámaras'],['dev','sensor','Dispositivos'],['net','users','Red'],['house','wrench','Mi Casa']],TS=TT,TF=TT.map((t,i)=>i?t:['home','chart','Estado']);
 function applySettings(){const s=S.settings,h=document.documentElement,d=s.theme==='dark'||(s.theme==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches);h.dataset.theme=d?'dark':'light';h.dataset.contrast=s.contrast?'high':'';h.style.setProperty('--scale',s.scale)}
-function render(){const a=$('#app');applySettings();if(!S.onboarded){a.innerHTML=onboard();return}
+function render(){const a=$('#app');applySettings();if(!S.onboarded){a.innerHTML=S.welcomed?onboard():welcome();return}
  const T=S.role==='senior'?TS:TF;if(!T.some(t=>t[0]===S.tab)&&S.tab!=='set'&&!(S.tab==='priv'&&S.role==='senior')&&!(S.tab==='tech'&&techOn()))S.tab='home';
  const V={home:S.role==='senior'?homeS:homeF,rem,cams,dev,net,house,priv,set,tech};
- a.innerHTML=`<header>${LOGO}<div class="seg" role="group" aria-label="Modo de uso"><button data-act="role" data-id="senior" aria-pressed="${S.role==='senior'}">Senior</button><button data-act="role" data-id="family" aria-pressed="${S.role==='family'}">Familia</button></div><span class="row" style="flex-wrap:nowrap">${techOn()?'<button class="ib" data-act="tab" data-id="tech" aria-label="Modo técnico">'+ic('wrench')+'</button>':''}${S.role==='senior'?'<button class="ib" data-act="tab" data-id="priv" aria-label="Privacidad">'+ic('lock')+'</button>':''}<button class="ib" data-act="tab" data-id="set" aria-label="Ajustes">${ic('gear')}</button></span></header><main>${V[S.tab]()}</main><nav aria-label="Secciones">${T.map(t=>`<button data-act="tab" data-id="${t[0]}" ${S.tab===t[0]?'aria-current="page"':''}>${ic(t[1])}${t[2]}</button>`).join('')}</nav>`}
+ a.innerHTML=`<header>${LOGO}<div class="seg" role="group" aria-label="Modo de uso"><button data-act="role" data-id="senior" aria-pressed="${S.role==='senior'}">Senior</button><button data-act="role" data-id="family" aria-pressed="${S.role==='family'}">Familia</button></div><span class="row" style="flex-wrap:nowrap">${techOn()?'<button class="ib" data-act="tab" data-id="tech" aria-label="Modo técnico">'+ic('wrench')+'</button>':''}${S.role==='senior'?'<button class="ib" data-act="tab" data-id="priv" aria-label="Privacidad">'+ic('lock')+'</button>':''}<button class="ib" data-act="tab" data-id="set" aria-label="Ajustes">${ic('gear')}</button></span></header>${gw.on?'':'<div class="demo">Modo demostración · aún no se envían avisos reales</div>'}<main>${V[S.tab]()}</main><nav aria-label="Secciones">${T.map(t=>`<button data-act="tab" data-id="${t[0]}" ${S.tab===t[0]?'aria-current="page"':''}>${ic(t[1])}${t[2]}</button>`).join('')}</nav>`}
 
 /* ---------- SOS ---------- */
 let sosT;const ov=$('#ov');
 function startSos(){let n=5;ov.hidden=false;const paint=()=>ov.innerHTML=`<div class="ovbox"><h2>Pediremos ayuda en</h2><div class="count" aria-live="assertive">${n}</div><p>Se avisará a tu familia.</p><button class="btn big" data-ov="cancel">CANCELAR</button></div>`;paint();
  sosT=setInterval(()=>{if(--n<=0){clearInterval(sosT);sendSos()}else paint()},1000)}
 function sendSos(){addAlert('sos','🆘 Pidió ayuda','sos');save();render();
- ov.innerHTML=`<div class="ovbox"><h2>✅ Aviso enviado a las ${hm(Date.now())}</h2>${S.contacts.length?`<p>Avisamos a: ${S.contacts.map(c=>esc(c.name)).join(', ')}.</p><div class="grid">${S.contacts.map(call).join('')}</div>`:'<p>Aún no tienes personas de confianza.</p>'}<a class="btn" href="tel:131">📞 Llamar al 131 (ambulancia)</a><button class="btn ok" data-ov="safe">Ya estoy bien, cancelar aviso</button><button class="btn ghost" data-ov="close">Cerrar</button></div>`}
+ ov.innerHTML=`<div class="ovbox"><h2>${gw.on?'✅ Aviso enviado a las '+hm(Date.now()):'🧪 Demostración: no se envió ningún aviso real'}</h2>${S.contacts.length?`<p>${gw.on?'Avisamos a':'Se habría avisado a'}: ${S.contacts.map(c=>esc(c.name)).join(', ')}.</p><div class="grid">${S.contacts.map(call).join('')}</div>`:'<p>Aún no tienes personas de confianza.</p>'}<a class="btn" href="tel:131">📞 Llamar al 131 (ambulancia)</a><button class="btn ok" data-ov="safe">Ya estoy bien, cancelar aviso</button><button class="btn ghost" data-ov="close">Cerrar</button></div>`}
 ov.addEventListener('click',e=>{const k=e.target.closest('[data-ov]')?.dataset.ov;if(!k)return;
  if(k==='cancel'){clearInterval(sosT);ov.hidden=true;toast('Cancelado. No se envió ningún aviso.')}
  if(k==='safe'){const a=S.alerts.find(x=>x.type==='sos'&&x.st==='active');if(a)A.resolve(a.id);ov.hidden=true;toast('Aviso cancelado. Qué bueno que estás bien.')}
@@ -168,15 +192,25 @@ ov.addEventListener('click',e=>{const k=e.target.closest('[data-ov]')?.dataset.o
 /* ---------- Acciones ---------- */
 let deferred=null;const mkDev=(t,name,loc,mqtt='')=>({id:uid(),type:t,name,loc,mqtt,info:DT.find(x=>x[0]===t)[3],bad:false});
 const A={
- role(id){S.role=id;S.tab='home';if(id==='family'&&!S.contacts.some(c=>c.id===S.viewer))S.viewer=S.contacts[0]?.id;if(pushOk())pushSync()},
+ async role(id){if(id==='family'&&S.profile.pin&&!S.famOk){const f=await formDlg('Clave del modo Familia',[{n:'p',l:'Clave de 4 dígitos',t:'password',r:1,i:1}]);if(!f)return;if(hash(f.p)!==S.profile.pin)return toast('Clave incorrecta')}
+  S.famOk=id==='family';S.role=id;S.tab='home';if(id==='family'&&!S.contacts.some(c=>c.id===S.viewer))S.viewer=S.contacts[0]?.id;if(pushOk())pushSync()},
  tab(id){S.tab=id},
  checkin(){S.checkin.last=Date.now();log('checkin','Confirmó que está bien');toast('✅ Listo. Tu familia sabrá que estás bien.')},
  resolve(id){const a=S.alerts.find(x=>x.id===id);if(!a)return;a.st='resolved';if(a.devId){const d=S.devices.find(x=>x.id===a.devId);if(d){d.bad=false;d.info='Normal'}}log(a.feat,'Alerta resuelta: '+a.text);toast('Alerta resuelta')},
  mute(id){const a=S.alerts.find(x=>x.id===id);if(a){a.muted=true;toast('Silenciada. Queda en el historial.')}},
  sos(){startSos();return 'skip'},
- doneRem(id){const r=S.reminders.find(x=>x.id===id);if(isDone(r)){r.doneDate=null;r.doneAt=null}else{r.doneDate=day();r.doneAt=Date.now();log('reminders','Tomó: '+r.title);toast('✓ Listo')}},
- async delRem(id){if(await ask('¿Eliminar medicamento?','Se borrará de la lista.','Eliminar')){S.reminders=S.reminders.filter(x=>x.id!==id);toast('Eliminado')}},
- async addRem(){const f=await formDlg('Nuevo medicamento',[{n:'title',l:'Nombre y dosis',r:1,p:'Ej: Losartán 50 mg'},{n:'time',l:'Hora de toma',t:'time',r:1}]);if(f){S.reminders.push({id:uid(),type:'medicamento',...f});toast('Medicamento guardado')}},
+ takeDose(id){const[i,t]=id.split('|'),m=S.reminders.find(x=>x.id===i);if(m.taken[t])delete m.taken[t];else{m.taken[t]=Date.now();log('reminders','Tomó '+m.name+' ('+hm(+t)+')');toast('✓ Dosis registrada')}},
+ start(){S.welcomed=true},
+ demo(){const a=uid(),b=uid(),h=String(new Date().getHours()).padStart(2,'0')+':00';S.profile={name:'Elena Rojas',age:'78',comuna:'Ñuñoa, Santiago',type:'Casa',pin:hash('1234')};
+  S.contacts=[{id:a,name:'Carolina Rojas',rel:'Hijo/a',phone:'+56 9 1111 2222'},{id:b,name:'Pedro Soto',rel:'Vecino/a',phone:'+56 9 3333 4444'}];S.viewer=a;
+  Object.values(S.privacy).forEach(p=>{p.on=true;p.who=[a]});S.reminders=[mkMed('Losartán','50 mg','08:00',12,0,null),mkMed('Amoxicilina','500 mg',h,8,7,null)];
+  S.devices=[mkDev('door','Puerta principal','Entrada'),mkDev('smoke','Detector de humo','Cocina'),mkDev('sos','Botón de pánico','Dormitorio')];S.onboarded=true;log('checkin','Demostración cargada');toast('Demostración lista. La clave de Familia es 1234')},
+ async setPin(){const f=await formDlg('Clave del modo Familia',[{n:'p',l:'Nueva clave de 4 dígitos',t:'password',r:1,i:1}]);if(f){if(!/^\d{4}$/.test(f.p))return toast('Debe tener exactamente 4 números');S.profile.pin=hash(f.p);toast('Clave guardada')}},
+ async medNotif(){if(typeof Notification==='undefined')return toast('Este navegador no admite avisos');toast(await Notification.requestPermission()==='granted'?'🔔 Avisos activados':'Permiso denegado')},
+ async delMed(id){if(await ask('¿Eliminar medicamento?','Se borrarán también sus dosis.','Eliminar')){S.reminders=S.reminders.filter(x=>x.id!==id);toast('Eliminado')}},
+ async addMed(){const f=await formDlg('Nuevo medicamento',[{n:'name',l:'Nombre del medicamento',r:1},{n:'dose',l:'Dosis',p:'Ej: 1 comprimido, 50 mg'},{n:'start',l:'Fecha de la primera toma',t:'date',v:day(),r:1},{n:'first',l:'Hora de la primera toma',t:'time',r:1},{n:'every',l:'Frecuencia',o:['Cada 24 horas (1 vez al día)','Cada 12 horas (2 veces)','Cada 8 horas (3 veces)','Cada 6 horas (4 veces)','Cada 4 horas (6 veces)']},{n:'hours',l:'Horas fijas (opcional)',p:'Ej: 08:00, 14:00, 21:00'},{n:'days',l:'Días de tratamiento (vacío = permanente)',t:'number',p:'Ej: 14'}]);
+  if(f){const hrs=(f.hours||'').split(/[,\s]+/).filter(x=>/^\d{1,2}:\d{2}$/.test(x)).map(x=>x.padStart(5,'0')),n=Math.min(parseInt(f.days)||0,365);
+   S.reminders.push(mkMed(f.name.trim(),f.dose.trim(),f.first,+f.every.match(/\d+/)[0],n,hrs.length?hrs:null,f.start));log('reminders','Nuevo medicamento: '+f.name.trim());toast(n?'Tratamiento de '+n+' días programado':'Medicamento permanente programado')}},
  toggleFeat(id){const p=S.privacy[id];p.on=!p.on;log(id,(p.on?'Reactivó':'Pausó')+' compartir: '+FEATS[id][0]);toast(p.on?'Función activa':'Función pausada. La familia ya no la ve.')},
  pauseAll(){const on=!Object.values(S.privacy).every(p=>p.on);Object.values(S.privacy).forEach(p=>p.on=on);toast(on?'Todo reactivado':'Todo pausado')},
  async addContact(){const f=await formDlg('Nueva persona de confianza',[{n:'name',l:'Nombre',r:1},{n:'rel',l:'Relación',o:['Hijo/a','Vecino/a','Cuidador/a','Allegado/a','Médico tratante']},{n:'phone',l:'Teléfono',t:'tel',r:1}]);if(f){S.contacts.push({id:uid(),...f});toast('Agregado. Elige qué puede ver.')}},
@@ -228,10 +262,10 @@ document.addEventListener('change',e=>{const t=e.target;
  else if(t.dataset.ctime!==undefined){S.checkin.time=t.value;toast('Hora guardada')}else return;
  save();if(t.dataset.viewer!==undefined)render()});
 document.addEventListener('submit',e=>{const f=e.target.closest('[data-form=onboard]');if(!f)return;e.preventDefault();const d=Object.fromEntries(new FormData(f)),id=uid();
- S.profile={name:d.name.trim(),age:d.age,comuna:d.comuna.trim(),type:d.type};
+ S.profile={name:d.name.trim(),age:d.age,comuna:d.comuna.trim(),type:d.type,pin:hash(d.pin)};
  S.contacts=[{id,name:d.cname.trim(),rel:d.rel,phone:d.phone.trim()}];S.viewer=id;
  Object.values(S.privacy).forEach(p=>{p.on=true;p.who=[id]});S.checkin.daily=!!d.daily;S.checkin.time='20:00';
- S.reminders=[{id:uid(),type:'medicamento',title:'Tomar mi medicamento',time:'12:00'},{id:uid(),type:'llamada',title:'Llamar a mi familia',time:'19:00'}];
+ S.reminders=[];
  S.devices=[mkDev('door','Puerta principal','Entrada'),mkDev('smoke','Detector de humo','Cocina'),mkDev('temp','Temperatura del living','Living'),mkDev('sos','Botón de pánico','Dormitorio')];S.onboarded=true;log('checkin','Hogar Seguro 60+ configurada');save();render();toast('¡Listo! Tu hogar está configurado.')});
 
 /* ---------- Aviso diario, PWA ---------- */
@@ -240,4 +274,4 @@ setInterval(checkMissed,30000);
 addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;if(S.onboarded)render()});
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applySettings);
-render();checkMissed();connect();
+render();checkMissed();connect();medTick();setInterval(medTick,20000);
